@@ -8,7 +8,7 @@ const app = express();
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, 'public'))); 
 
-const db = new sqlite3.Database('./database/games.db');
+const db = new sqlite3.Database('./games.db');
 
 app.get('/users', (req, res) => {
     db.all('SELECT * FROM users', [], (err, rows) => {
