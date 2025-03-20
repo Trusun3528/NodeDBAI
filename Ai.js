@@ -39,12 +39,21 @@ app.post('/ai-query', async (req, res) => {
             // Construct the schema description
             const schemaDescription = tables.map(table => table.sql).join('\n\n');
 
+            // Check if the user query is asking for a list of schemas
+            if (userQuery.toLowerCase().includes('list schemas')) {
+                const schemaList = tables.map(table => table.name).join(', ');
+                return res.json({
+                    message: 'List of schemas retrieved successfully',
+                    schemas: schemaList,
+                });
+            }
+
             // Include the schema in the AI prompt
             const aiPrompt = `
             The database has the following schema:
             ${schemaDescription}
 
-            Generate a valid SQLite querys based on the user's request. 
+            Generate a valid SQLite query based on the user's request. 
             Only return the SQL query and nothing else.
 
             User request: ${userQuery}
@@ -110,7 +119,7 @@ async function getAIResponse(query, retries = 3) {
         try {
             //Use the correct LM Studio endpoint for completions
             const response = await axios.post('http://localhost:1234/v1/completions', {
-                model: "elinas_-_llama-3-13b-instruct-ft", // Replace with the actual model name from LM Studio
+                model: "llama-3.2-3b-instruct", // Replace with the actual model name from LM Studio
                 prompt: query,
                 max_tokens: 150, // Adjust as needed
                 temperature: 0.5, // Lower temperature for more deterministic responses
