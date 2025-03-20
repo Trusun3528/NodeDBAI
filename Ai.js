@@ -24,51 +24,81 @@ app.post('/ai-query', async (req, res) => {
     const userQuery = req.body.query;
 
     try {
-      
-        const aiPrompt = `
-        The database has a table named "Games" with the following columns:
-        - id (INTEGER, Primary Key, Auto Increment)
-        - title (TEXT, NOT NULL)
-        - genre (TEXT)
-        - release_year (INTEGER)
-        - developer (TEXT)
-
-        Generate a valid SQL query based on the user's request. 
-        Only return the SQL query and nothing else.
-
-        User request: ${userQuery}
-        SQL query:
+        // Dynamically retrieve the database schema
+        const schemaQuery = `
+            SELECT name, sql 
+            FROM sqlite_master 
+            WHERE type='table' AND name NOT LIKE 'sqlite_%';
         `;
 
-        const aiResponse = await getAIResponse(aiPrompt);
+        db.all(schemaQuery, [], async (err, tables) => {
+            if (err) {
+                return res.status(500).send(`Failed to retrieve database schema: ${err.message}`);
+            }
 
-        //Parse the AI's response to extract the SQL query
-        const sqlQuery = aiResponse.trim();
+            // Construct the schema description
+            const schemaDescription = tables.map(table => table.sql).join('\n\n');
 
-        //Determine the type of query (SELECT, INSERT, UPDATE, DELETE)
-        if (sqlQuery.toLowerCase().startsWith('select')) {
-            //Handle SELECT queries
-            db.all(sqlQuery, [], (err, rows) => {
-                if (err) {
-                    return res.status(500).send(`Database error: ${err.message}`);
+            // Include the schema in the AI prompt
+            const aiPrompt = `
+            The database has the following schema:
+            ${schemaDescription}
+
+            Generate a valid SQLite querys based on the user's request. 
+            Only return the SQL query and nothing else.
+
+            User request: ${userQuery}
+            SQL query:
+            `;
+
+            try {
+                const aiResponse = await getAIResponse(aiPrompt);
+
+                // Parse the AI's response to extract the SQL query
+                const sqlQuery = aiResponse.trim();
+
+                // Determine the type of query (SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP)
+                const queryType = sqlQuery.split(' ')[0].toLowerCase();
+
+                if (queryType === 'select') {
+                    // Handle SELECT queries
+                    db.all(sqlQuery, [], (err, rows) => {
+                        if (err) {
+                            return res.status(500).send(`Database error: ${err.message}`);
+                        }
+                        res.json({
+                            message: 'Query executed successfully',
+                            data: rows, // Return the retrieved rows
+                        });
+                    });
+                } else if (['insert', 'update', 'delete'].includes(queryType)) {
+                    // Handle INSERT, UPDATE, DELETE queries
+                    db.run(sqlQuery, function (err) {
+                        if (err) {
+                            return res.status(500).send(`Database error: ${err.message}`);
+                        }
+                        res.json({
+                            message: 'Query executed successfully',
+                            changes: this.changes, // Number of rows affected
+                        });
+                    });
+                } else if (['create', 'alter', 'drop'].includes(queryType)) {
+                    // Handle CREATE, ALTER, DROP queries
+                    db.run(sqlQuery, function (err) {
+                        if (err) {
+                            return res.status(500).send(`Database error: ${err.message}`);
+                        }
+                        res.json({
+                            message: 'Schema modification executed successfully',
+                        });
+                    });
+                } else {
+                    res.status(400).send('Unsupported query type.');
                 }
-                res.json({
-                    message: 'Query executed successfully',
-                    data: rows, //Return the retrieved rows
-                });
-            });
-        } else {
-            //Handle INSERT, UPDATE, DELETE queries
-            db.run(sqlQuery, function (err) {
-                if (err) {
-                    return res.status(500).send(`Database error: ${err.message}`);
-                }
-                res.json({
-                    message: 'Query executed successfully',
-                    changes: this.changes, //Number of rows affected
-                });
-            });
-        }
+            } catch (error) {
+                res.status(500).send(error.message);
+            }
+        });
     } catch (error) {
         res.status(500).send(error.message);
     }
